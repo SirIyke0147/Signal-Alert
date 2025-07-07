@@ -80,8 +80,8 @@ jobs:
         run: python Free_Forex_Signal.py
 """
 
-# Write the updated workflow YAML file
+# Write the updated workflow YAML file with lowercase filename
 with open(".github/workflows/signal_bots_schedule.yml", "w") as f:
     f.write(workflow_yaml)
 
-print("Updated GitHub Actions workflow file has been created.")
+print("GitHub Actions workflow file has been created at .github/workflows/signal_bots_schedule.yml")
