@@ -8,7 +8,7 @@ import time
 import logging
 from datetime import datetime, timedelta
 import pytz
-import talib as ta
+import pandas_ta as ta  # Changed from talib to pandas_ta
 from telegram import Bot
 
 # Apply nest_asyncio for Jupyter environments
@@ -186,16 +186,24 @@ def fetch_yahoo_data(symbol, interval='4h'):
         return None
 
 def calculate_technical_indicators(df, params):
-    """Calculate technical indicators using TA-Lib"""
+    """Calculate technical indicators using pandas_ta"""
     if df is None or len(df) < 50:
         return None
     
     try:
-        # Calculate indicators
-        df['ema'] = ta.EMA(df['close'], timeperiod=params['ema_window'])
-        df['atr'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=params['atr_period'])
-        df['adx'] = ta.ADX(df['high'], df['low'], df['close'], timeperiod=params['adx_window'])
-        df['rsi'] = ta.RSI(df['close'], timeperiod=params['rsi_window'])
+        # Calculate indicators using pandas_ta
+        df['ema'] = ta.ema(df['close'], length=params['ema_window'])
+        df['atr'] = ta.atr(df['high'], df['low'], df['close'], length=params['atr_period'])
+        
+        # ADX returns a DataFrame with multiple columns
+        adx_result = ta.adx(df['high'], df['low'], df['close'], length=params['adx_window'])
+        if adx_result is not None:
+            # Get the ADX column (e.g., 'ADX_16' for 16 period)
+            adx_col = [col for col in adx_result.columns if 'ADX_' in col]
+            if adx_col:
+                df['adx'] = adx_result[adx_col[0]]
+        
+        df['rsi'] = ta.rsi(df['close'], length=params['rsi_window'])
         
         # Additional calculations
         df['atr_ma'] = df['atr'].rolling(int(params['atr_period'] * 1.5)).mean()
@@ -206,7 +214,7 @@ def calculate_technical_indicators(df, params):
         
         return df.dropna()
     except Exception as e:
-        logger.error(f"Error calculating indicators: {str(e)}")
+        logger.error(f"Error calculating indicators: {str(e)}", exc_info=True)
         return None
 
 def detect_trading_signal(df, params):
@@ -220,8 +228,9 @@ def detect_trading_signal(df, params):
         # Volume confirmation
         vol_boost = 20 if row['vol_ratio'] > params['volume_filter'] else 0
         
-        # ADX strength
-        adx_boost = 20 if row['adx'] > 25 else 0
+        # ADX strength - default to 0 if not calculated
+        adx_value = row.get('adx', 0)
+        adx_boost = 20 if adx_value > 25 else 0
         
         # Momentum confirmation
         momentum_boost = 15 if row['momentum'] > 0 else -15
@@ -233,7 +242,7 @@ def detect_trading_signal(df, params):
         long_conditions = (
             row['macd'] > 0 and
             row['close'] > row['ema'] and
-            row['rsi'] > 50 and
+            row.get('rsi', 0) > 50 and  # Handle missing RSI
             row['momentum'] > 0
         )
         
@@ -241,7 +250,7 @@ def detect_trading_signal(df, params):
         short_conditions = (
             row['macd'] < 0 and
             row['close'] < row['ema'] and
-            row['rsi'] < 50 and
+            row.get('rsi', 100) < 50 and  # Handle missing RSI
             row['momentum'] < 0
         )
         
@@ -251,7 +260,7 @@ def detect_trading_signal(df, params):
             return ("short", base_confidence, row)
         return None
     except Exception as e:
-        logger.error(f"Error detecting signals: {str(e)}")
+        logger.error(f"Error detecting signals: {str(e)}", exc_info=True)
         return None
 
 def confirm_with_1h(symbol, direction, params, is_crypto=True):
@@ -263,16 +272,19 @@ def confirm_with_1h(symbol, direction, params, is_crypto=True):
             yahoo_symbol = YAHOO_SYMBOLS.get(symbol, symbol)
             df_1h = fetch_yahoo_data(yahoo_symbol, "1h")
             
-        if df_1h is None:
+        if df_1h is None or df_1h.empty:
             return 0
             
         df_1h = calculate_technical_indicators(df_1h, params)
+        if df_1h is None:
+            return 0
+            
         signal = detect_trading_signal(df_1h, params)
         
         if signal and signal[0] == direction:
             return CONFIDENCE_BOOST
     except Exception as e:
-        logger.error(f"1h confirmation failed for {symbol}: {str(e)}")
+        logger.error(f"1h confirmation failed for {symbol}: {str(e)}", exc_info=True)
     return 0
 
 def format_telegram_message(asset, direction, confidence, row, params):
@@ -284,9 +296,13 @@ def format_telegram_message(asset, direction, confidence, row, params):
     
     uk_time = datetime.now(pytz.timezone('Europe/London')).strftime("%Y-%m-%d %H:%M")
     entry = row['close']
-    atr = row['atr']
+    
+    # Handle missing ATR
+    atr = row.get('atr', 0)
+    atr_ma = row.get('atr_ma', 1)
+    
     position_size = CAPITAL * RISK_PER_TRADE
-    volatility_ratio = (row['atr'] / row['atr_ma']).round(2) if not pd.isna(row['atr_ma']) else 1.0
+    volatility_ratio = (atr / atr_ma).round(2) if not pd.isna(atr_ma) and atr_ma != 0 else 1.0
     
     # Calculate take profit levels
     tp_levels = []
@@ -340,11 +356,13 @@ async def scan_assets():
             logger.info(f"🔍 Analyzing {symbol} (Binance)")
             params = ASSET_PARAMS.get(symbol, {})
             df_4h = fetch_binance_data(symbol, "4h")
-            if df_4h is None:
+            if df_4h is None or df_4h.empty:
+                logger.warning(f"   ⚠️ No data for {symbol}")
                 continue
                 
             df_4h = calculate_technical_indicators(df_4h, params)
-            if df_4h is None:
+            if df_4h is None or df_4h.empty:
+                logger.warning(f"   ⚠️ Failed to calculate indicators for {symbol}")
                 continue
                 
             signal = detect_trading_signal(df_4h, params)
@@ -361,7 +379,7 @@ async def scan_assets():
                     signals.append((confidence, msg))
                     logger.info(f"   ✅ Confirmed signal ({confidence}%)")
         except Exception as e:
-            logger.error(f"⚠️ Error processing {symbol}: {str(e)}")
+            logger.error(f"⚠️ Error processing {symbol}: {str(e)}", exc_info=True)
     
     # Add delay between crypto and stock scans
     await asyncio.sleep(2)
@@ -373,11 +391,13 @@ async def scan_assets():
             logger.info(f"🔍 Analyzing {asset_name} (Yahoo)")
             params = ASSET_PARAMS.get(asset_name, {})
             df_4h = fetch_yahoo_data(symbol, "4h")
-            if df_4h is None:
+            if df_4h is None or df_4h.empty:
+                logger.warning(f"   ⚠️ No data for {asset_name}")
                 continue
                 
             df_4h = calculate_technical_indicators(df_4h, params)
-            if df_4h is None:
+            if df_4h is None or df_4h.empty:
+                logger.warning(f"   ⚠️ Failed to calculate indicators for {asset_name}")
                 continue
                 
             signal = detect_trading_signal(df_4h, params)
@@ -394,7 +414,7 @@ async def scan_assets():
                     signals.append((confidence, msg))
                     logger.info(f"   ✅ Confirmed signal ({confidence}%)")
         except Exception as e:
-            logger.error(f"⚠️ Error processing {asset_name}: {str(e)}")
+            logger.error(f"⚠️ Error processing {asset_name}: {str(e)}", exc_info=True)
     
     # Process and send top signals
     if signals:
