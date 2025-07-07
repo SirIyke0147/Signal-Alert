@@ -9,5 +9,5 @@ selenium
 webdriver-manager
 nest-asyncio
 ta
-talib-binary
+TA-Lib==0.4.26  # Replaced talib-binary with compatible version
 chromium-chromedriver
