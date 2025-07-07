@@ -27,22 +27,23 @@ jobs:
         sudo apt-get install -y chromium-browser chromium-driver python3-dev \
         build-essential autoconf libtool pkg-config wget
         
-    - name: Build TA-Lib from source with fixes
+    - name: Build TA-Lib from source with robust fixes
       run: |
-        wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+        wget https://downloads.sourceforge.net/project/ta-lib/ta-lib/0.4.0/ta-lib-0.4.0-src.tar.gz
         tar -xzf ta-lib-0.4.0-src.tar.gz
         cd ta-lib
         
-        # Apply critical fixes for gen_code tool
-        sed -i 's/--no-preserve=mode/--preserve=mode/' src/tools/gen_code/Makefile.am
-        sed -i 's/--no-preserve=mode/--preserve=mode/' src/tools/gen_code/Makefile.in
+        # Apply comprehensive build fixes
+        sed -i 's/--no-preserve=mode/--preserve=mode/' src/tools/gen_code/Makefile.*
+        sed -i 's/-Wl,--no-as-needed//' src/Makefile.*
+        sed -i 's|AM_CPPFLAGS = -I$(top_srcdir)/include|AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/src/ta_common|' src/tools/gen_code/Makefile.*
         
-        # Fix Makefile for modern compilers
-        sed -i 's/-Wl,--no-as-needed//' src/Makefile.am
-        sed -i 's/-Wl,--no-as-needed//' src/Makefile.in
+        # Fix header paths for gen_code
+        find . -type f -exec sed -i 's|"ta_defs.h"|"ta_common/ta_defs.h"|g' src/tools/gen_code/gen_code.c {}
+        find . -type f -exec sed -i 's|"ta_func.h"|"ta_func/ta_func.h"|g' src/tools/gen_code/gen_code.c {}
         
         ./configure --prefix=/usr
-        make -j$(nproc)
+        make -j1  # Single-threaded build to avoid race conditions
         sudo make install
         cd ..
         sudo ldconfig
