@@ -38,9 +38,9 @@ jobs:
         sed -i 's/-Wl,--no-as-needed//' src/Makefile.*
         sed -i 's|AM_CPPFLAGS = -I$(top_srcdir)/include|AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/src/ta_common|' src/tools/gen_code/Makefile.*
         
-        # Fix header paths for gen_code
-        find . -type f -exec sed -i 's|"ta_defs.h"|"ta_common/ta_defs.h"|g' src/tools/gen_code/gen_code.c {}
-        find . -type f -exec sed -i 's|"ta_func.h"|"ta_func/ta_func.h"|g' src/tools/gen_code/gen_code.c {}
+        # Fix header paths for gen_code - CORRECTED SYNTAX
+        sed -i 's|"ta_defs.h"|"ta_common/ta_defs.h"|g' src/tools/gen_code/gen_code.c
+        sed -i 's|"ta_func.h"|"ta_func/ta_func.h"|g' src/tools/gen_code/gen_code.c
         
         ./configure --prefix=/usr
         make -j1  # Single-threaded build to avoid race conditions
