@@ -3,7 +3,7 @@ numpy
 requests
 python-telegram-bot
 pytz
-pandas_ta  # Alternative to TA-Lib
+pandas_ta
 yfinance
 selenium
 webdriver-manager
