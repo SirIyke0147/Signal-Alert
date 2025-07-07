@@ -3,7 +3,7 @@ numpy
 requests
 python-telegram-bot
 pytz
-ta-lib-py
+TA-Lib
 yfinance
 selenium
 webdriver-manager
