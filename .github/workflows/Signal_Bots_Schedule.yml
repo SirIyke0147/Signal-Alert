@@ -24,17 +24,26 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y chromium-browser chromium-driver python3-dev
-        # TA-Lib system dependencies
-        sudo apt-get install -y build-essential libta-lib-dev
+        sudo apt-get install -y chromium-browser chromium-driver python3-dev \
+        build-essential autoconf libtool pkg-config wget  # Added build tools :cite[4]:cite[8]
+        
+    - name: Build TA-Lib from source
+      run: |
+        wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+        tar -xzf ta-lib-0.4.0-src.tar.gz
+        cd ta-lib
+        ./configure --prefix=/usr
+        make -j$(nproc)
+        sudo make install
+        cd ..
+        sudo ldconfig  # Refresh library cache :cite[1]:cite[4]
         
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install wheel
-        # Install TA-Lib from source
-        pip install --no-cache-dir TA-Lib==0.4.26
-        # Install remaining requirements
+        # Install TA-Lib before other deps
+        pip install --no-cache-dir TA-Lib==0.4.26  # Explicit install :cite[8]
         pip install -r requirements.txt
         
     - name: Verify TA-Lib installation
