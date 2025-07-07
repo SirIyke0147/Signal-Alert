@@ -10,4 +10,3 @@ webdriver-manager
 nest-asyncio
 ta
 TA-Lib==0.4.26
-chromium-chromedriver
