@@ -96,5 +96,3 @@ with open(".github/workflows/signal_bots_schedule.yml", "w") as f:
 # Write the requirements.txt file
 with open("requirements.txt", "w") as f:
     f.write(requirements_txt)
-
-print("Updated workflow and requirements.txt files have been created.")
