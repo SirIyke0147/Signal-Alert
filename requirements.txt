@@ -1,5 +1,5 @@
 pandas
-numpy<1.24  # Downgrade to avoid API changes
+numpy==1.23.5  # Pinned to last compatible version
 requests
 python-telegram-bot
 pytz
@@ -9,4 +9,4 @@ selenium
 webdriver-manager
 nest-asyncio
 ta
-TA-Lib==0.4.26
+https://github.com/mrjbq7/ta-lib/archive/refs/tags/v0.4.27.dev0.tar.gz  # Updated wrapper
