@@ -54,8 +54,8 @@ jobs:
         pip install wheel
         # Install pinned NumPy version first
         pip install "numpy==1.23.5"
-        # Install updated TA-Lib wrapper from GitHub
-        pip install --no-cache-dir https://github.com/mrjbq7/ta-lib/archive/refs/tags/v0.4.27.dev0.tar.gz
+        # Install TA-Lib from PyPI instead of GitHub
+        pip install --no-cache-dir TA-Lib
         # Install other requirements
         pip install -r requirements.txt
         
