@@ -25,7 +25,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y chromium-browser chromium-driver python3-dev \
-        build-essential autoconf libtool pkg-config wget
+        build-essential autoconf libtool pkg-config wget git
         
     - name: Build TA-Lib from source with robust fixes
       run: |
@@ -38,12 +38,12 @@ jobs:
         sed -i 's/-Wl,--no-as-needed//' src/Makefile.*
         sed -i 's|AM_CPPFLAGS = -I$(top_srcdir)/include|AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/src/ta_common|' src/tools/gen_code/Makefile.*
         
-        # Fix header paths for gen_code - CORRECTED SYNTAX
+        # Fix header paths for gen_code
         sed -i 's|"ta_defs.h"|"ta_common/ta_defs.h"|g' src/tools/gen_code/gen_code.c
         sed -i 's|"ta_func.h"|"ta_func/ta_func.h"|g' src/tools/gen_code/gen_code.c
         
         ./configure --prefix=/usr
-        make -j1  # Single-threaded build to avoid race conditions
+        make -j1
         sudo make install
         cd ..
         sudo ldconfig
@@ -52,12 +52,17 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install wheel
+        # Install compatible NumPy version first
+        pip install "numpy<1.24"
+        # Then install TA-Lib
         pip install --no-cache-dir TA-Lib==0.4.26
+        # Finally install other requirements
         pip install -r requirements.txt
         
-    - name: Verify TA-Lib installation
+    - name: Verify installations
       run: |
         python -c "import talib; print(f'TA-Lib {talib.__version__} installed successfully')"
+        python -c "import numpy; print(f'NumPy {numpy.__version__} installed')"
         
     - name: Run Commodity Signal Bot
       env:
