@@ -19,15 +19,15 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     raise ValueError("Missing Telegram credentials in environment variables")
 
 def setup_selenium():
-    """Configure headless Chrome browser"""
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
+    options.binary_location = os.getenv('CHROME_PATH', '/usr/bin/chromium-browser')
     return webdriver.Chrome(options=options)
-
+    
 def scrape_signals():
     """Scrape forex signals from website"""
     driver = setup_selenium()
