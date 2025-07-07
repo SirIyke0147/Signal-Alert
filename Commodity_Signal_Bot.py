@@ -2,6 +2,7 @@ import os
 import requests
 import pandas as pd
 import numpy as np
+npNaN = np.nan
 import asyncio
 import nest_asyncio
 import time
