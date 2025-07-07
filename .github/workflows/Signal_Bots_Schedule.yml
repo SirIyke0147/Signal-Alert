@@ -25,7 +25,9 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y chromium-browser chromium-driver python3-dev
+        sudo apt-get install -y chromium-browser chromium-chromedriver python3-dev
+        # Remove existing symlink if it exists
+        sudo rm -f /usr/bin/google-chrome
         sudo ln -s /usr/bin/chromium-browser /usr/bin/google-chrome
         
     - name: Install Python dependencies
