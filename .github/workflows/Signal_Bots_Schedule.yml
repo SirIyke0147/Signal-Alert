@@ -11,6 +11,10 @@ jobs:
     timeout-minutes: 30
     env:
       TZ: Europe/London
+      # Critical environment variables for library detection
+      LD_LIBRARY_PATH: /usr/local/lib:$LD_LIBRARY_PATH
+      LIBRARY_PATH: /usr/local/lib:$LIBRARY_PATH
+      C_INCLUDE_PATH: /usr/local/include:$C_INCLUDE_PATH
 
     steps:
     - name: Checkout code
@@ -42,11 +46,18 @@ jobs:
         sed -i 's|"ta_defs.h"|"ta_common/ta_defs.h"|g' src/tools/gen_code/gen_code.c
         sed -i 's|"ta_func.h"|"ta_func/ta_func.h"|g' src/tools/gen_code/gen_code.c
         
-        ./configure --prefix=/usr
+        ./configure --prefix=/usr/local  # Changed to /usr/local
         make -j1
         sudo make install
         cd ..
-        sudo ldconfig
+        sudo ldconfig  # Update library cache
+        
+    - name: Verify TA-Lib installation
+      run: |
+        echo "Checking library installation:"
+        ls -l /usr/local/lib/libta_lib.*
+        echo "Library paths:"
+        ldconfig -p | grep ta_lib
         
     - name: Install Python dependencies
       run: |
@@ -54,8 +65,11 @@ jobs:
         pip install wheel
         # Install pinned NumPy version first
         pip install "numpy==1.23.5"
-        # Install TA-Lib from PyPI instead of GitHub
-        pip install --no-cache-dir TA-Lib
+        # Install TA-Lib with explicit library path
+        pip install --no-cache-dir TA-Lib \
+          --global-option=build_ext \
+          --global-option="-L/usr/local/lib" \
+          --global-option="-I/usr/local/include"
         # Install other requirements
         pip install -r requirements.txt
         
