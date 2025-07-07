@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import asyncio
 import nest_asyncio
+import time
+import logging
 from datetime import datetime, timedelta
 import pytz
 import talib as ta
@@ -12,11 +14,18 @@ from telegram import Bot
 # Apply nest_asyncio for Jupyter environments
 nest_asyncio.apply()
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+
 # ===== Configuration =====
 # Load credentials from environment variables
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')  # Not used in current implementation
 
 # Validate environment variables
 if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -88,56 +97,70 @@ YAHOO_SYMBOLS = {"Gold": "GC=F", "Silver": "SI=F", "Microsoft": "MSFT"}
 # Initialize Telegram bot
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-def fetch_binance_data(symbol, interval, lookback=500):
-    """Fetch Binance market data (public endpoint)"""
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={lookback}"
+def fetch_binance_data(symbol, interval='4h', limit=500):
+    """Fetch Binance market data using direct URL"""
     try:
+        # Construct URL with parameters
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+        
+        # Fetch data
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         data = response.json()
         
+        # Parse into DataFrame
         df = pd.DataFrame(data, columns=[
             "open_time", "open", "high", "low", "close", "volume",
             "close_time", "quote_asset_volume", "trades", 
             "taker_buy_base", "taker_buy_quote", "ignore"
         ])
-        df['datetime'] = pd.to_datetime(df['open_time'], unit='ms')
-        df.set_index('datetime', inplace=True)
-        return df[["open", "high", "low", "close", "volume"]].astype(float)
-    except Exception as e:
-        print(f"Error fetching Binance data for {symbol}: {str(e)}")
-        return None
-
-def fetch_yahoo_data(symbol, interval):
-    """Fetch Yahoo Finance data using yfinance alternative method"""
-    try:
-        # Calculate timeframe
-        end_date = datetime.utcnow()
-        if interval == "1h":
-            start_date = end_date - timedelta(days=60)
-            period = "60d"
-        else:  # 4h
-            start_date = end_date - timedelta(days=120)
-            period = "120d"
         
-        # Use public Yahoo Finance API
+        # Convert to proper data types
+        numeric_cols = ["open", "high", "low", "close", "volume"]
+        df[numeric_cols] = df[numeric_cols].astype(float)
+        df['datetime'] = pd.to_datetime(df['open_time'], unit='ms')
+        
+        return df.set_index('datetime')[["open", "high", "low", "close", "volume"]]
+    
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request error for {symbol}: {str(e)}")
+    except Exception as e:
+        logger.error(f"General error fetching {symbol}: {str(e)}")
+    return None
+
+def fetch_yahoo_data(symbol, interval='4h'):
+    """Fetch Yahoo Finance data using direct URL"""
+    try:
+        # Calculate timeframe - reduce days to avoid rate limits
+        end = int(datetime.utcnow().timestamp())
+        start = int((datetime.utcnow() - timedelta(days=30)).timestamp())
+        
+        # Construct URL
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
         params = {
-            "period1": int(start_date.timestamp()),
-            "period2": int(end_date.timestamp()),
+            "period1": start,
+            "period2": end,
             "interval": "1h" if interval == "1h" else "1d",
-            "includePrePost": False
+            "includePrePost": "false"
         }
         
-        response = requests.get(url, params=params, timeout=15)
+        # Add headers to reduce rate limiting
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        # Fetch data with delay to avoid rate limiting
+        time.sleep(1)
+        response = requests.get(url, params=params, headers=headers, timeout=15)
         response.raise_for_status()
         data = response.json()
         
         # Parse response
-        chart_data = data["chart"]["result"][0]
-        timestamps = chart_data["timestamp"]
-        quotes = chart_data["indicators"]["quote"][0]
+        chart = data["chart"]["result"][0]
+        timestamps = chart["timestamp"]
+        quotes = chart["indicators"]["quote"][0]
         
+        # Create DataFrame
         df = pd.DataFrame({
             "datetime": pd.to_datetime(timestamps, unit="s"),
             "open": quotes["open"],
@@ -147,7 +170,7 @@ def fetch_yahoo_data(symbol, interval):
             "volume": quotes["volume"]
         }).set_index("datetime")
         
-        # Resample to 4h if needed
+        # Resample if needed
         if interval == "4h":
             df = df.resample("4h").agg({
                 "open": "first",
@@ -159,7 +182,7 @@ def fetch_yahoo_data(symbol, interval):
             
         return df
     except Exception as e:
-        print(f"Error fetching Yahoo data for {symbol}: {str(e)}")
+        logger.error(f"Error fetching Yahoo data for {symbol}: {str(e)}")
         return None
 
 def calculate_technical_indicators(df, params):
@@ -183,7 +206,7 @@ def calculate_technical_indicators(df, params):
         
         return df.dropna()
     except Exception as e:
-        print(f"Error calculating indicators: {str(e)}")
+        logger.error(f"Error calculating indicators: {str(e)}")
         return None
 
 def detect_trading_signal(df, params):
@@ -228,7 +251,7 @@ def detect_trading_signal(df, params):
             return ("short", base_confidence, row)
         return None
     except Exception as e:
-        print(f"Error detecting signals: {str(e)}")
+        logger.error(f"Error detecting signals: {str(e)}")
         return None
 
 def confirm_with_1h(symbol, direction, params, is_crypto=True):
@@ -237,7 +260,8 @@ def confirm_with_1h(symbol, direction, params, is_crypto=True):
         if is_crypto:
             df_1h = fetch_binance_data(symbol, "1h", 200)
         else:
-            df_1h = fetch_yahoo_data(YAHOO_SYMBOLS.get(symbol, symbol), "1h")
+            yahoo_symbol = YAHOO_SYMBOLS.get(symbol, symbol)
+            df_1h = fetch_yahoo_data(yahoo_symbol, "1h")
             
         if df_1h is None:
             return 0
@@ -248,7 +272,7 @@ def confirm_with_1h(symbol, direction, params, is_crypto=True):
         if signal and signal[0] == direction:
             return CONFIDENCE_BOOST
     except Exception as e:
-        print(f"1h confirmation failed for {symbol}: {str(e)}")
+        logger.error(f"1h confirmation failed for {symbol}: {str(e)}")
     return 0
 
 def format_telegram_message(asset, direction, confidence, row, params):
@@ -294,6 +318,7 @@ def format_telegram_message(asset, direction, confidence, row, params):
 async def send_telegram_alert(message):
     """Send formatted message to Telegram"""
     try:
+        # Send with MarkdownV2 parsing
         await bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=message,
@@ -301,29 +326,32 @@ async def send_telegram_alert(message):
         )
         return True
     except Exception as e:
-        print(f"Error sending Telegram message: {str(e)}")
+        logger.error(f"Error sending Telegram message: {str(e)}")
         return False
 
 async def scan_assets():
     """Main scanning function"""
-    print("🚀 Starting asset scan...")
+    logger.info("🚀 Starting asset scan...")
     signals = []
     
     # Scan crypto assets
     for symbol in CRYPTO:
         try:
-            print(f"🔍 Analyzing {symbol} (Binance)")
+            logger.info(f"🔍 Analyzing {symbol} (Binance)")
             params = ASSET_PARAMS.get(symbol, {})
             df_4h = fetch_binance_data(symbol, "4h")
             if df_4h is None:
                 continue
                 
             df_4h = calculate_technical_indicators(df_4h, params)
+            if df_4h is None:
+                continue
+                
             signal = detect_trading_signal(df_4h, params)
             
             if signal:
                 direction, confidence, row = signal
-                print(f"   • Found {direction.upper()} signal ({confidence}%)")
+                logger.info(f"   • Found {direction.upper()} signal ({confidence}%)")
                 
                 # Add 1h confirmation
                 confidence += confirm_with_1h(symbol, direction, params, is_crypto=True)
@@ -331,26 +359,32 @@ async def scan_assets():
                 if confidence >= 50:
                     msg = format_telegram_message(symbol, direction, confidence, row, params)
                     signals.append((confidence, msg))
-                    print(f"   ✅ Confirmed signal ({confidence}%)")
+                    logger.info(f"   ✅ Confirmed signal ({confidence}%)")
         except Exception as e:
-            print(f"⚠️ Error processing {symbol}: {str(e)}")
+            logger.error(f"⚠️ Error processing {symbol}: {str(e)}")
+    
+    # Add delay between crypto and stock scans
+    await asyncio.sleep(2)
     
     # Scan Yahoo assets
     for asset_name in YAHOO_SYMBOLS:
         try:
             symbol = YAHOO_SYMBOLS[asset_name]
-            print(f"🔍 Analyzing {asset_name} (Yahoo)")
+            logger.info(f"🔍 Analyzing {asset_name} (Yahoo)")
             params = ASSET_PARAMS.get(asset_name, {})
             df_4h = fetch_yahoo_data(symbol, "4h")
             if df_4h is None:
                 continue
                 
             df_4h = calculate_technical_indicators(df_4h, params)
+            if df_4h is None:
+                continue
+                
             signal = detect_trading_signal(df_4h, params)
             
             if signal:
                 direction, confidence, row = signal
-                print(f"   • Found {direction.upper()} signal ({confidence}%)")
+                logger.info(f"   • Found {direction.upper()} signal ({confidence}%)")
                 
                 # Add 1h confirmation
                 confidence += confirm_with_1h(asset_name, direction, params, is_crypto=False)
@@ -358,9 +392,9 @@ async def scan_assets():
                 if confidence >= 50:
                     msg = format_telegram_message(asset_name, direction, confidence, row, params)
                     signals.append((confidence, msg))
-                    print(f"   ✅ Confirmed signal ({confidence}%)")
+                    logger.info(f"   ✅ Confirmed signal ({confidence}%)")
         except Exception as e:
-            print(f"⚠️ Error processing {asset_name}: {str(e)}")
+            logger.error(f"⚠️ Error processing {asset_name}: {str(e)}")
     
     # Process and send top signals
     if signals:
@@ -369,14 +403,15 @@ async def scan_assets():
         
         for confidence, message in top_signals:
             if await send_telegram_alert(message):
-                print(f"📤 Sent Telegram alert for signal ({confidence}%)")
+                logger.info(f"📤 Sent Telegram alert for signal ({confidence}%)")
             await asyncio.sleep(1)
     else:
         alert = "⚠️ No qualified signals found. Market conditions not met."
-        await send_telegram_alert(alert)
-        print(alert)
+        # Send plain text message without Markdown
+        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=alert)
+        logger.info(alert)
     
-    print("✅ Scan completed")
+    logger.info("✅ Scan completed")
 
 # Run the scanner
 if __name__ == "__main__":
