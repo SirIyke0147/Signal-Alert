@@ -8,7 +8,7 @@ import time
 import logging
 from datetime import datetime, timedelta
 import pytz
-import pandas_ta as ta  # Changed from talib to pandas_ta
+import pandas_ta as ta
 from telegram import Bot
 
 # Apply nest_asyncio for Jupyter environments
