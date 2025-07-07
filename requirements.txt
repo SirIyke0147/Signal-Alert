@@ -3,8 +3,11 @@ numpy
 requests
 python-telegram-bot
 pytz
-pandas_ta
+pandas-ta
 yfinance
 selenium
 webdriver-manager
 nest-asyncio
+ta
+talib-binary
+chromium-chromedriver
