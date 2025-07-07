@@ -3,7 +3,7 @@ name: Signal Bots Scheduler
 on:
   schedule:
     # Runs every 2 hours from 10:00–00:00 UK time, Mon–Sun (9–23 UTC)
-    - cron: '0 9,11,13,15,17,19,21,23 * * 1-7'
+    - cron: 'cron: '0 9,11,13,15,17,19,21,23 * * 1-7'
   workflow_dispatch:
 
 jobs:
