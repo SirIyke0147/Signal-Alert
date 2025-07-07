@@ -25,12 +25,21 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y chromium-browser chromium-driver python3-dev
+        # TA-Lib system dependencies
+        sudo apt-get install -y build-essential libta-lib-dev
         
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install wheel
+        # Install TA-Lib from source
+        pip install --no-cache-dir TA-Lib==0.4.26
+        # Install remaining requirements
         pip install -r requirements.txt
+        
+    - name: Verify TA-Lib installation
+      run: |
+        python -c "import talib; print(f'TA-Lib {talib.__version__} installed successfully')"
         
     - name: Run Commodity Signal Bot
       env:
@@ -44,14 +53,12 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: python Stock_signal_Bot.py
   
-      
     - name: Run Forex Signal Bot
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
       run: python Forex_Signal_Bot.py
-      
       
     - name: Run Free Forex Signal
       env:
