@@ -1,5 +1,5 @@
 pandas
-numpy
+numpy<1.24  # Downgrade to avoid API changes
 requests
 python-telegram-bot
 pytz
