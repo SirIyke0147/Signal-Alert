@@ -10,3 +10,15 @@ webdriver-manager
 nest-asyncio
 ta
 https://github.com/mrjbq7/ta-lib/archive/refs/tags/v0.4.27.dev0.tar.gz  # Updated wrapper
+pandas
+numpy==1.23.5  # Pinned to last compatible version
+requests
+python-telegram-bot
+pytz
+pandas-ta
+yfinance
+selenium
+webdriver-manager
+nest-asyncio
+ta
+TA-Lib  # Install from PyPI instead of GitHub URL
