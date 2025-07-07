@@ -37,12 +37,14 @@ jobs:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: python Commodity_Signal_Bot.py
+      continue-on-error: true  # Add this
       
     - name: Run Stock Signal Bot
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: python Stock_signal_Bot.py
+      continue-on-error: true  # Add this
       
     - name: Run Forex Signal Bot
       env:
@@ -50,9 +52,11 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
       run: python Forex_Signal_Bot.py
+      continue-on-error: true  # Add this
       
     - name: Run Free Forex Signal
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      run: python Free_Forex_Signal.py  # Fixed file name
+      run: python Free_Forex_Signal.py
+      continue-on-error: true  # Add this
