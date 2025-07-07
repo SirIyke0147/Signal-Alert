@@ -25,14 +25,15 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y chromium-browser chromium-chromedriver python3-dev build-essential
+        sudo apt-get install -y chromium-browser chromium-chromedriver python3-dev build-essential wget
         wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
         tar -xzf ta-lib-0.4.0-src.tar.gz
         cd ta-lib
         ./configure --prefix=/usr
-        make
+        make -j$(nproc)
         sudo make install
         cd ..
+        sudo rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
         sudo rm -f /usr/bin/google-chrome
         sudo ln -s /usr/bin/chromium-browser /usr/bin/google-chrome
         
@@ -40,7 +41,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install wheel
-        pip install -r requirements.txt
+        pip install pandas numpy requests python-telegram-bot pytz pandas-ta yfinance selenium webdriver-manager nest-asyncio ta
         pip install TA-Lib
         
     - name: Run Commodity Signal Bot
