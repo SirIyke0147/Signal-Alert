@@ -25,25 +25,33 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y chromium-browser chromium-driver python3-dev \
-        build-essential autoconf libtool pkg-config wget  # Added build tools :cite[4]:cite[8]
+        build-essential autoconf libtool pkg-config wget
         
-    - name: Build TA-Lib from source
+    - name: Build TA-Lib from source with fixes
       run: |
         wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
         tar -xzf ta-lib-0.4.0-src.tar.gz
         cd ta-lib
+        
+        # Apply critical fixes for gen_code tool
+        sed -i 's/--no-preserve=mode/--preserve=mode/' src/tools/gen_code/Makefile.am
+        sed -i 's/--no-preserve=mode/--preserve=mode/' src/tools/gen_code/Makefile.in
+        
+        # Fix Makefile for modern compilers
+        sed -i 's/-Wl,--no-as-needed//' src/Makefile.am
+        sed -i 's/-Wl,--no-as-needed//' src/Makefile.in
+        
         ./configure --prefix=/usr
         make -j$(nproc)
         sudo make install
         cd ..
-        sudo ldconfig  # Refresh library cache :cite[1]:cite[4]
+        sudo ldconfig
         
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install wheel
-        # Install TA-Lib before other deps
-        pip install --no-cache-dir TA-Lib==0.4.26  # Explicit install :cite[8]
+        pip install --no-cache-dir TA-Lib==0.4.26
         pip install -r requirements.txt
         
     - name: Verify TA-Lib installation
