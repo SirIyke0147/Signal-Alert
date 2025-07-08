@@ -1,0 +1,48 @@
+name: Free_Forex_shedule 
+
+on:
+  schedule:
+    - cron: '0 */2 * * 1-5'  # Runs 2 hour from UTC Mon-Fri
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests selenium pytz
+
+    - name: Set up Chrome
+      uses: browser-actions/setup-chrome@latest
+
+    - name: Check UK time window
+      id: time_check
+      run: |
+        # Get current UK time (24h format)
+        UK_HOUR=$(TZ='Europe/London' date +%H)
+        # Check if even hour between 6am-6pm inclusive
+        if [ $UK_HOUR -ge 6 ] && [ $UK_HOUR -le 18 ] && [ $(( $UK_HOUR % 2 )) -eq 0 ]; then
+          echo "run_job=true" >> $GITHUB_OUTPUT
+        else
+          echo "run_job=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Run Forex Signal Bot
+      if: ${{ steps.time_check.outputs.run_job == 'true' }}
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        python3 Free_Forex_Signal.py
