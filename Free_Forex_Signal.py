@@ -201,6 +201,7 @@ def extract_signals(page_text):
                     "take_profit": tp.strip(),
                     "stop_loss": sl.strip(),
                     "timestamp": datetime.utcnow().isoformat(),
+                    "sent": False,  # Track if signal has been sent
                     "pattern": pattern_used  # For debugging
                 })
                 print(f"    ✅ Extracted signal #{match_idx+1}: {pair} {action} at {entry} ({posted_time})")
@@ -262,6 +263,7 @@ def load_previous_signals():
                 return cleaned_data
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             print(f"⚠️ Error loading signal history: {str(e)}")
+            print("⚠️ Resetting signal history file")
             return {}
     print("ℹ️ No existing signal file found")
     return {}
@@ -287,7 +289,7 @@ def save_signals(signals):
             print(f"⚠️ Signal {sig_id} missing timestamp, keeping anyway")
             cleaned[sig_id] = sig
     
-    print(f"  Saving {len(cleaned)} signals ({len(signals)} new)")
+    print(f"  Saving {len(cleaned)} signals ({len(signals)} new/updated)")
     with open(SIGNALS_FILE, 'w') as f:
         json.dump(cleaned, f, indent=2)
 
@@ -343,8 +345,17 @@ def main():
     print("="*50)
     print(f"🕒 Current UTC time: {datetime.utcnow().isoformat()}")
     print(f"🔧 Debug files will be saved to: {os.path.abspath(DEBUG_DIR)}")
+    print(f"📄 Signal history file: {os.path.abspath(SIGNALS_FILE)}")
 
     try:
+        # Load previous signals before scraping
+        print("\n" + "-"*50)
+        print("📚 LOADING PREVIOUS SIGNALS")
+        print("-"*50)
+        previous_signals = load_previous_signals()
+        previous_ids = set(previous_signals.keys())
+        print(f"ℹ️ {len(previous_ids)} signals in history")
+        
         # Scrape website
         print("\n" + "-"*50)
         print("🌐 BEGINNING WEBSITE SCRAPING")
@@ -364,21 +375,23 @@ def main():
 
         print(f"📊 Found {len(current_signals)} signals in page text")
 
-        # Load previous signals
-        print("\n" + "-"*50)
-        print("📚 LOADING PREVIOUS SIGNALS")
-        print("-"*50)
-        previous_signals = load_previous_signals()
-        previous_ids = set(previous_signals.keys())
-        print(f"ℹ️ {len(previous_ids)} signals in history")
+        # Find new signals that haven't been sent yet
+        new_signals = []
+        for signal in current_signals:
+            sig_id = signal["id"]
+            if sig_id in previous_signals:
+                # If signal exists but wasn't sent, mark as unsent
+                if not previous_signals[sig_id].get("sent", False):
+                    print(f"  ⚠️ Signal {sig_id[:8]} exists but wasn't sent, marking as unsent")
+                    signal["sent"] = False
+                    new_signals.append(signal)
+            else:
+                # New signal found
+                signal["sent"] = False
+                new_signals.append(signal)
+                print(f"  ✨ Found new signal {sig_id[:8]}")
 
-        # Find new signals
-        new_signals = [
-            sig for sig in current_signals
-            if sig["id"] not in previous_ids
-        ]
-
-        print(f"✨ Found {len(new_signals)} new signals")
+        print(f"✨ Found {len(new_signals)} unsent signals")
 
         # Process new signals
         if new_signals:
@@ -394,10 +407,15 @@ def main():
 
                 if send_telegram_message(message):
                     print("    📤 Signal sent to Telegram")
-                    # Update previous signals only after successful send
+                    # Update signal status to sent
+                    signal["sent"] = True
+                    signal["timestamp"] = datetime.utcnow().isoformat()
+                    
+                    # Update in previous signals
                     previous_signals[signal["id"]] = signal
+                    print(f"    ✅ Marked signal {signal['id'][:8]} as sent")
                 else:
-                    print("    ❌ Failed to send signal")
+                    print("    ❌ Failed to send signal, keeping as unsent")
         else:
             print("ℹ️ No new signals to send")
 
