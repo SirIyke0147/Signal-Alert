@@ -1,5 +1,5 @@
 pandas
-numpy==1.23.5  # Pinned to last compatible version
+numpy==1.23.5
 requests
 python-telegram-bot
 pytz
@@ -9,4 +9,4 @@ selenium
 webdriver-manager
 nest-asyncio
 ta
-TA-Lib  # Install from PyPI instead of GitHub URL
+TA-Lib
