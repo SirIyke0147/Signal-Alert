@@ -1,8 +1,8 @@
-name: Free Forex Schedule
+ name: Free Forex Schedule
 
 on:
   schedule:
-    - cron: '0 5-18 * * 1-5'  # Runs hourly from 05:00-18:00 UTC Mon-Fri
+    - cron: '0 */2 * * 1-5'  # Runs hourly from 05:00-18:00 UTC Mon-Fri
   workflow_dispatch:
 
 jobs:
@@ -32,11 +32,14 @@ jobs:
       run: |
         # Get current UK time (24h format)
         UK_HOUR=$(TZ='Europe/London' date +%H)
+        echo "Current UK hour: $UK_HOUR"
         # Check if even hour between 6am-6pm inclusive
         if [ $UK_HOUR -ge 6 ] && [ $UK_HOUR -le 18 ] && [ $(( $UK_HOUR % 2 )) -eq 0 ]; then
           echo "run_job=true" >> $GITHUB_OUTPUT
+          echo "✅ Within execution window"
         else
           echo "run_job=false" >> $GITHUB_OUTPUT
+          echo "❌ Outside execution window"
         fi
 
     - name: Run Forex Signal Bot
@@ -45,4 +48,5 @@ jobs:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
+        echo "🚀 Running Forex Signal Bot..."
         python3 Free_Forex_Signal.py
