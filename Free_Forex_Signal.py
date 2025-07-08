@@ -120,13 +120,13 @@ def scrape_signals():
 def normalize_time_text(text):
     """Normalize time-related text to prevent duplicates from minor wording changes"""
     replacements = {
-        r'\b\d+\s*minutes?\b': 'minutes ago',
-        r'\b\d+\s*hours?\b': 'hours ago',
-        r'\b\d+\s*days?\b': 'days ago',
-        r'\bjust now\b': '0 hours ago',
-        r'\bminute\b': 'minute ago',
-        r'\bhour\b': 'hour ago',
-        r'\bday\b': 'day ago',
+        r'\b(\d+)\s*minutes?\b': r'\1 minutes ago',
+        r'\b(\d+)\s*hours?\b': r'\1 hours ago',
+        r'\b(\d+)\s*days?\b': r'\1 days ago',
+        r'\bjust now\b': '0 minutes ago',
+        r'\bminute\b': '1 minute ago',
+        r'\bhour\b': '1 hour ago',
+        r'\bday\b': '1 day ago',
         r'\s+ago\s+ago': ' ago'  # Fix double "ago"
     }
     
@@ -186,10 +186,14 @@ def extract_signals(page_text):
                 # Create consistent ID
                 signal_id = hashlib.md5(f"{pair}{from_time}{till_time}{entry}".encode()).hexdigest()
                 
+                # Extract the exact time string (minutes/hours ago)
+                time_ago = re.search(r'\d+\s*(?:minutes?|hours?|days?)\s+ago', age, re.IGNORECASE)
+                posted_time = time_ago.group(0) if time_ago else "recently"
+                
                 signals.append({
                     "id": signal_id,
                     "pair": pair,
-                    "posted": normalize_time_text(age.strip()),
+                    "posted": posted_time,
                     "from": from_time,
                     "till": till_time,
                     "action": action.strip(),
@@ -199,7 +203,7 @@ def extract_signals(page_text):
                     "timestamp": datetime.utcnow().isoformat(),
                     "pattern": pattern_used  # For debugging
                 })
-                print(f"    ✅ Extracted signal #{match_idx+1}: {pair} {action} at {entry}")
+                print(f"    ✅ Extracted signal #{match_idx+1}: {pair} {action} at {entry} ({posted_time})")
             print(f"✅ Using pattern #{pattern_used}")
             break  # Stop after first successful pattern
         else:
@@ -384,6 +388,7 @@ def main():
             for signal in new_signals:
                 print(f"  Processing signal {signal['id'][:8]} for {signal['pair']}")
                 print(f"    Action: {signal['action']}, Entry: {signal['entry']}")
+                print(f"    Posted: {signal['posted']}")
                 print(f"    Pattern used: {signal.get('pattern', 'N/A')}")
                 message = format_telegram_message(signal)
 
