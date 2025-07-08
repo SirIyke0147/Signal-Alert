@@ -183,8 +183,9 @@ def extract_signals(page_text):
                 from_time = re.sub(r"UTC[^\s]*\s*", "", from_time).strip()
                 till_time = re.sub(r"UTC[^\s]*\s*", "", till_time).strip()
                 
-                # Create consistent ID
-                signal_id = hashlib.md5(f"{pair}{from_time}{till_time}{entry}".encode()).hexdigest()
+                # Create unique ID using multiple attributes
+                id_data = f"{pair}{action}{entry}{tp}{sl}{from_time}{till_time}"
+                signal_id = hashlib.md5(id_data.encode()).hexdigest()
                 
                 # Extract the exact time string (minutes/hours ago)
                 time_ago = re.search(r'\d+\s*(?:minutes?|hours?|days?)\s+ago', age, re.IGNORECASE)
@@ -205,6 +206,7 @@ def extract_signals(page_text):
                     "pattern": pattern_used  # For debugging
                 })
                 print(f"    ✅ Extracted signal #{match_idx+1}: {pair} {action} at {entry} ({posted_time})")
+                print(f"    🆔 Signal ID: {signal_id}")
             print(f"✅ Using pattern #{pattern_used}")
             break  # Stop after first successful pattern
         else:
@@ -249,6 +251,8 @@ def load_previous_signals():
                         signal_time = datetime.fromisoformat(signal["timestamp"])
                         if (now - signal_time) < timedelta(hours=CLEANUP_HOURS):
                             cleaned_data[sig_id] = signal
+                        else:
+                            print(f"  🗑️ Removing expired signal: {sig_id[:8]}")
                     except KeyError:
                         print(f"⚠️ Signal {sig_id} missing timestamp, keeping anyway")
                         cleaned_data[sig_id] = signal
@@ -285,6 +289,8 @@ def save_signals(signals):
             sig_time = datetime.fromisoformat(sig["timestamp"])
             if (now - sig_time) < timedelta(hours=CLEANUP_HOURS):
                 cleaned[sig_id] = sig
+            else:
+                print(f"  🗑️ Skipping expired signal during save: {sig_id[:8]}")
         except KeyError:
             print(f"⚠️ Signal {sig_id} missing timestamp, keeping anyway")
             cleaned[sig_id] = sig
@@ -379,10 +385,16 @@ def main():
         new_signals = []
         for signal in current_signals:
             sig_id = signal["id"]
+            
+            # Check if signal exists in history
             if sig_id in previous_signals:
-                # If signal exists but wasn't sent, mark as unsent
-                if not previous_signals[sig_id].get("sent", False):
-                    print(f"  ⚠️ Signal {sig_id[:8]} exists but wasn't sent, marking as unsent")
+                existing_signal = previous_signals[sig_id]
+                
+                # Check if it was already sent
+                if existing_signal.get("sent", False):
+                    print(f"  ✅ Signal {sig_id[:8]} already sent, skipping")
+                else:
+                    print(f"  ⚠️ Signal {sig_id[:8]} exists but wasn't sent, will retry")
                     signal["sent"] = False
                     new_signals.append(signal)
             else:
