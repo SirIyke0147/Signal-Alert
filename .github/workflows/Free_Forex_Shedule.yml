@@ -2,7 +2,7 @@ name: Forex Signal Bot
 
 on:
   schedule:
-    - cron: '0 */2 * * 1-5'  # Every 2 hours, Mon-Fri
+    - cron: '0 */2 * * 1-5'  # Every 2 hours, Mon-Fri (00:00, 02:00, ..., 22:00 UTC)
   workflow_dispatch:
 
 jobs:
@@ -22,15 +22,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests selenium pytz
 
-    - name: Set up Chrome
-      uses: browser-actions/setup-chrome@latest
-      with:
-        chrome-version: 'stable'  # Ensure compatible version
-
-    - name: Verify Chrome installation
+    - name: Install Chrome
       run: |
-        google-chrome --version
-        chromedriver --version
+        sudo apt-get update
+        sudo apt-get install -y chromium-browser chromium-chromedriver
 
     - name: Run Forex Signal Bot
       env:
@@ -39,20 +34,10 @@ jobs:
       run: |
         echo "🚀 Running at $(date -u)"
         python3 Free_Forex_Signal.py
-        
-        # Capture debug files
-        echo "=== PAGE CONTENT ==="
-        cat page_content.txt || echo "No page content"
-        echo ""
-        echo "=== CHROMEDRIVER LOG ==="
-        cat chromedriver.log || echo "No chromedriver log"
 
     - name: Upload debug files
       if: always()
       uses: actions/upload-artifact@v3
       with:
         name: debug-files
-        path: |
-          page_content.txt
-          chromedriver.log
-          webdriver_error.png
+        path: latest_signals.json
