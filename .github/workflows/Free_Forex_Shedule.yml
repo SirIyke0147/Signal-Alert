@@ -1,8 +1,8 @@
-name: Free_Forex_shedule 
+name: Free Forex Schedule
 
 on:
   schedule:
-    - cron: '0 */2 * * 1-5'  # Runs 2 hour from UTC Mon-Fri
+    - cron: '0 5-18 * * 1-5'  # Runs hourly from 05:00-18:00 UTC Mon-Fri
   workflow_dispatch:
 
 jobs:
