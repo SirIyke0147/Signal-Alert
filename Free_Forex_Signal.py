@@ -126,7 +126,8 @@ def normalize_time_text(text):
         r'\bjust now\b': '0 hours ago',
         r'\bminute\b': 'minute ago',
         r'\bhour\b': 'hour ago',
-        r'\bday\b': 'day ago'
+        r'\bday\b': 'day ago',
+        r'\s+ago\s+ago': ' ago'  # Fix double "ago"
     }
     
     for pattern, replacement in replacements.items():
@@ -150,14 +151,14 @@ def extract_signals(page_text):
     
     # More flexible pattern to handle website changes
     patterns = [
-        # Primary pattern
-        r"([A-Z]{3}/[A-Z]{3})\s+.*?signal\s+([^\n]+?)\s*From\s+UTC\+01:00\s+([\d:]+)\s+Till\s+UTC\+01:00\s+([\d:]+)\s+(Buy|Sell)\s+.*?at\s+([\d.]+)\s+Take profit\*? at\s+([\d.]+)\s+Stop loss at\s+([\d.]+)",
+        # New pattern based on the debug output
+        r"([A-Z]{3}/[A-Z]{3})\s+signal\s+([^\n]+?)\s*From\s*UTC[^\s]*\s*([\d:]+)\s*Till\s*UTC[^\s]*\s*([\d:]+)\s*(Buy|Sell)\s+.*?at\s+([\d.]+)\s+Take profit\*?\s*at\s+([\d.]+)\s+Stop loss\s*at\s+([\d.]+)",
         
-        # Fallback pattern if structure changes slightly
-        r"([A-Z]{3}/[A-Z]{3})\s+.*?(Buy|Sell)\s+signal.*?Posted:\s*([^\n]+)\s*Entry:\s*([\d.]+)\s*TP:\s*([\d.]+)\s*SL:\s*([\d.]+)\s*Time:\s*([\d:]+)\s*-\s*([\d:]+)",
+        # More generic pattern that matches the sample text
+        r"([A-Z]{3}/[A-Z]{3})\s+signal\s+([^\n]+?)\s*From\s*([^\n]+?)\s*Till\s*([^\n]+?)\s*(Buy|Sell)\s+.*?at\s+([\d.]+)\s+Take profit[^\d]*([\d.]+)\s+Stop loss[^\d]*([\d.]+)",
         
-        # More generic pattern
-        r"([A-Z]{3}/[A-Z]{3})\s+.*?signal\s+([^\n]+?)\s*Active:\s*([\d:]+)\s*-\s*([\d:]+)\s+UTC.*?(Buy|Sell).*?Entry:\s*([\d.]+).*?TP:\s*([\d.]+).*?SL:\s*([\d.]+)"
+        # Fallback pattern with more flexibility
+        r"([A-Z]{3}/[A-Z]{3})\s+.*?signal\s+([^\n]+?)\s*[^\n]*?From[^\n]*?([\d:]+)[^\n]*?Till[^\n]*?([\d:]+)[^\n]*?(Buy|Sell)[^\n]*?at\s+([\d.]+)[^\n]*?Take profit[^\d]*([\d.]+)[^\n]*?Stop loss[^\d]*([\d.]+)"
     ]
 
     signals = []
@@ -170,23 +171,27 @@ def extract_signals(page_text):
         
         if matches:
             pattern_used = idx + 1
-            for match in matches:
-                if len(match) == 8:  # First pattern
+            for match_idx, match in enumerate(matches):
+                if len(match) == 8:
                     pair, age, from_time, till_time, action, entry, tp, sl = match
-                elif len(match) == 8:  # Third pattern
-                    pair, age, from_time, till_time, action, entry, tp, sl = match
-                else:  # Second pattern
-                    pair, action, age, entry, tp, sl, from_time, till_time = match
+                else:
+                    # Skip invalid matches
+                    print(f"    ⚠️ Match #{match_idx+1} has invalid length: {len(match)}")
+                    continue
                 
-                # Create consistent ID regardless of pattern
+                # Clean up the time strings
+                from_time = re.sub(r"UTC[^\s]*\s*", "", from_time).strip()
+                till_time = re.sub(r"UTC[^\s]*\s*", "", till_time).strip()
+                
+                # Create consistent ID
                 signal_id = hashlib.md5(f"{pair}{from_time}{till_time}{entry}".encode()).hexdigest()
                 
                 signals.append({
                     "id": signal_id,
                     "pair": pair,
                     "posted": normalize_time_text(age.strip()),
-                    "from": from_time.strip(),
-                    "till": till_time.strip(),
+                    "from": from_time,
+                    "till": till_time,
                     "action": action.strip(),
                     "entry": entry.strip(),
                     "take_profit": tp.strip(),
@@ -194,8 +199,12 @@ def extract_signals(page_text):
                     "timestamp": datetime.utcnow().isoformat(),
                     "pattern": pattern_used  # For debugging
                 })
+                print(f"    ✅ Extracted signal #{match_idx+1}: {pair} {action} at {entry}")
             print(f"✅ Using pattern #{pattern_used}")
             break  # Stop after first successful pattern
+        else:
+            # Print why pattern didn't match
+            print(f"    Pattern #{idx+1} failed to match")
     
     if not signals:
         print("⚠️ No patterns matched any signals")
