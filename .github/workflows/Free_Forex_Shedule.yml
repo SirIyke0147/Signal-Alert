@@ -1,15 +1,13 @@
-name: Free Forex Schedule
+name: Forex Signal Bot
 
 on:
   schedule:
-    - cron: '0 */2 * * 1-5'  # Runs every 2 hours, Mon-Fri (UTC)
+    - cron: '0 */2 * * 1-5'  # Every 2 hours, Mon-Fri
   workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    env:
-      CHROME_PATH: /usr/bin/google-chrome
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -26,11 +24,36 @@ jobs:
 
     - name: Set up Chrome
       uses: browser-actions/setup-chrome@latest
+      with:
+        chrome-version: 'stable'
+
+    - name: Verify Chrome installation
+      run: |
+        google-chrome --version
+        chromedriver --version
 
     - name: Run Forex Signal Bot
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
-        echo "🚀 Running Forex Signal Bot at $(date -u)"
+        echo "🚀 Running at $(date -u)"
         python3 Free_Forex_Signal.py
+        
+        # Capture debug information
+        echo "=== SCRAPER DEBUG ==="
+        ls -lah
+        echo "--- PAGE CONTENT ---"
+        cat page_content.txt || echo "No page content"
+        echo "--- CHROMEDRIVER LOG ---"
+        cat chromedriver.log || echo "No chromedriver log"
+
+    - name: Upload debug files
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: debug-files
+        path: |
+          page_content.txt
+          chromedriver.log
+          latest_signals.json
