@@ -6,142 +6,178 @@ from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import time
 import hashlib
 import pytz
+from dotenv import load_dotenv
 
-# Load configuration from environment variables
+# Load environment variables
+load_dotenv()
+
+# Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 SIGNALS_FILE = 'latest_signals.json'
-
-# Validate environment variables
-if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-    raise ValueError("Missing Telegram credentials in environment variables")
+CLEANUP_HOURS = 24  # Cleanup signals older than this
 
 def setup_selenium():
-    """Configure headless Chrome browser with reliability improvements"""
+    """Configure headless Chrome browser with retry logic"""
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-    return webdriver.Chrome(options=options)
+    
+    # Add retry logic for browser setup
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            driver = webdriver.Chrome(options=options)
+            return driver
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(5)
 
 def scrape_signals():
-    """Scrape forex signals from website with enhanced reliability"""
-    driver = setup_selenium()
-    try:
-        print("🌐 Navigating to website...")
-        driver.get("https://live-forex-signals.com/en/")
-        
-        # Wait for page to load dynamically
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.TAG_NAME, "body"))
-        )
-        
-        # Scroll to trigger content loading
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)
-        
-        print("📄 Extracting page content...")
-        page_text = driver.find_element(By.TAG_NAME, "body").text
-        return page_text
-    except Exception as e:
-        print(f"⚠️ Scraping error: {str(e)}")
-        return ""
-    finally:
-        driver.quit()
+    """Scrape forex signals from website with retry logic"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            driver = setup_selenium()
+            driver.get("https://live-forex-signals.com/en/")
+            
+            # Wait for dynamic content with multiple checks
+            for _ in range(5):
+                time.sleep(3)
+                page_text = driver.find_element(By.TAG_NAME, "body").text
+                if "signal" in page_text.lower():
+                    return page_text
+            
+            # If we got here, signals weren't found
+            raise ValueError("Signal content not found on page")
+            
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {str(e)}")
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(10)
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+
+def normalize_time_text(text):
+    """Normalize time-related text to prevent duplicates from minor wording changes"""
+    replacements = {
+        r'\b\d+\s*minutes?\b': 'minutes ago',
+        r'\b\d+\s*hours?\b': 'hours ago',
+        r'\b\d+\s*days?\b': 'days ago',
+        r'\bjust now\b': '0 hours ago'
+    }
+    
+    for pattern, replacement in replacements.items():
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
 
 def extract_signals(page_text):
-    """Parse signals from page text using flexible regex"""
-    if not page_text:
-        return []
+    """Parse signals from page text using flexible regex patterns"""
+    # Normalize the text first
+    normalized_text = normalize_time_text(page_text)
+    
+    # More flexible pattern to handle website changes
+    patterns = [
+        # Primary pattern
+        r"([A-Z]{3}/[A-Z]{3})\s+.*?signal\s+([^\n]+?)\s*From\s+UTC\+01:00\s+([\d:]+)\s+Till\s+UTC\+01:00\s+([\d:]+)\s+(Buy|Sell)\s+.*?at\s+([\d.]+)\s+Take profit\*? at\s+([\d.]+)\s+Stop loss at\s+([\d.]+)",
+        
+        # Fallback pattern if structure changes slightly
+        r"([A-Z]{3}/[A-Z]{3})\s+.*?(Buy|Sell)\s+signal.*?Posted:\s*([^\n]+)\s*Entry:\s*([\d.]+)\s*TP:\s*([\d.]+)\s*SL:\s*([\d.]+)\s*Time:\s*([\d:]+)\s*-\s*([\d:]+)"
+    ]
 
-    # More flexible pattern to handle time variations
-    pattern = re.compile(
-        r"([A-Z]{3}/[A-Z]{3})\s+.*?signal\s+(\d+\s*(?:minute|hour|day)s?\s+ago).*?From\s+UTC\+01:00\s+([\d:]+)\s+Till\s+UTC\+01:00\s+([\d:]+)\s+(Buy|Sell)\s+.*?at\s+([\d.]+)\s+Take\s+profit[\*\s]*at\s+([\d.]+)\s+Stop\s+loss\s+at\s+([\d.]+)",
-        re.DOTALL | re.IGNORECASE
-    )
-    
     signals = []
-    seen_ids = set()
-    
-    # Get current date for daily reset
-    uk_date = datetime.now(pytz.timezone('Europe/London')).strftime('%Y-%m-%d')
-    
-    for match in pattern.findall(page_text):
-        pair, age, from_time, till_time, action, entry, tp, sl = match
-        
-        # Create date-based ID to prevent duplicates across days
-        signal_id = hashlib.md5(f"{uk_date}:{pair}:{from_time}:{till_time}".encode()).hexdigest()
-        
-        # Skip duplicates in this run
-        if signal_id in seen_ids:
-            continue
-        seen_ids.add(signal_id)
-        
-        signals.append({
-            "id": signal_id,
-            "pair": pair,
-            "posted": age,
-            "from": from_time,
-            "till": till_time,
-            "action": action,
-            "entry": entry,
-            "take_profit": tp,
-            "stop_loss": sl,
-            "timestamp": datetime.utcnow().isoformat()
-        })
+    for pattern in patterns:
+        matches = re.findall(pattern, normalized_text, re.DOTALL)
+        if matches:
+            for match in matches:
+                if len(match) == 8:  # First pattern
+                    pair, age, from_time, till_time, action, entry, tp, sl = match
+                else:  # Second pattern
+                    pair, action, age, entry, tp, sl, from_time, till_time = match
+                
+                # Create consistent ID regardless of pattern
+                signal_id = hashlib.md5(f"{pair}{from_time}{till_time}{entry}".encode()).hexdigest()
+                
+                signals.append({
+                    "id": signal_id,
+                    "pair": pair,
+                    "posted": normalize_time_text(age.strip()),
+                    "from": from_time.strip(),
+                    "till": till_time.strip(),
+                    "action": action.strip(),
+                    "entry": entry.strip(),
+                    "take_profit": tp.strip(),
+                    "stop_loss": sl.strip(),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            break  # Stop after first successful pattern
     
     return signals
 
 def load_previous_signals():
-    """Load previously processed signals with daily reset"""
-    # Check if we need to reset for new day
-    reset_signals = False
+    """Load and cleanup old signals"""
     if os.path.exists(SIGNALS_FILE):
-        file_mtime = datetime.fromtimestamp(os.path.getmtime(SIGNALS_FILE))
-        if file_mtime.date() < datetime.utcnow().date():
-            print("♻️ Resetting signal history for new day")
-            reset_signals = True
-    
-    if reset_signals or not os.path.exists(SIGNALS_FILE):
-        return {}
-    
-    try:
-        with open(SIGNALS_FILE, 'r') as f:
-            data = json.load(f)
-            # Convert list to dictionary if needed
-            if isinstance(data, list):
-                return {sig["id"]: sig for sig in data}
-            return data
-    except (json.JSONDecodeError, KeyError):
-        return {}
+        try:
+            with open(SIGNALS_FILE, 'r') as f:
+                data = json.load(f)
+                
+                # Convert to dict if needed
+                if isinstance(data, list):
+                    data = {sig["id"]: sig for sig in data}
+                
+                # Cleanup old signals
+                now = datetime.utcnow()
+                cleaned_data = {}
+                for sig_id, signal in data.items():
+                    signal_time = datetime.fromisoformat(signal["timestamp"])
+                    if (now - signal_time) < timedelta(hours=CLEANUP_HOURS):
+                        cleaned_data[sig_id] = signal
+                
+                # Save cleaned data if changes were made
+                if len(cleaned_data) != len(data):
+                    with open(SIGNALS_FILE, 'w') as f:
+                        json.dump(cleaned_data, f, indent=2)
+                
+                return cleaned_data
+        except (json.JSONDecodeError, KeyError, ValueError):
+            return {}
+    return {}
 
 def save_signals(signals):
-    """Save signals to file with atomic write"""
-    # Create temporary file first to prevent corruption
-    temp_file = f"{SIGNALS_FILE}.tmp"
-    with open(temp_file, 'w') as f:
-        json.dump({sig["id"]: sig for sig in signals}, f, indent=2)
+    """Save signals with cleanup"""
+    existing = load_previous_signals()
+    updated = {sig["id"]: sig for sig in signals}
     
-    # Replace original file
-    os.replace(temp_file, SIGNALS_FILE)
+    # Merge with existing signals
+    merged = {**existing, **updated}
+    
+    # Cleanup old signals during save
+    now = datetime.utcnow()
+    cleaned = {
+        sig_id: sig for sig_id, sig in merged.items()
+        if (now - datetime.fromisoformat(sig["timestamp"])) < timedelta(hours=CLEANUP_HOURS)
+    }
+    
+    with open(SIGNALS_FILE, 'w') as f:
+        json.dump(cleaned, f, indent=2)
 
 def format_telegram_message(signal):
     """Create formatted Telegram message with emojis"""
     action_emoji = "🟢" if signal["action"].lower() == "buy" else "🔴"
     action_text = "BUY ↗️" if signal["action"].lower() == "buy" else "SELL ↘️"
-    
+
     # Get current time in UK timezone
     uk_time = datetime.now(pytz.timezone('Europe/London')).strftime("%Y-%m-%d %H:%M")
-    
+
     return (
         f"⏰ *{uk_time} UK*\n"
         f"{action_emoji} *NEW FREE FOREX SIGNAL* {action_emoji}\n\n"
@@ -163,68 +199,72 @@ def send_telegram_message(message):
         "text": message,
         "parse_mode": "Markdown"
     }
-    
-    # Retry up to 3 times
-    for attempt in range(3):
+
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
             response = requests.post(url, json=payload, timeout=15)
             response.raise_for_status()
             return True
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ Telegram error (attempt {attempt+1}): {e}")
-            time.sleep(2)
-    
-    return False
+            if attempt == max_retries - 1:
+                print(f"❌ Final attempt failed to send Telegram message: {e}")
+                return False
+            time.sleep(5)
 
 def main():
     print("🚀 Starting forex signal scraper...")
-    start_time = time.time()
-    
-    # Scrape website
-    page_text = scrape_signals()
-    if not page_text:
-        print("❌ Failed to scrape page content")
-        return
-    
-    # Extract signals
-    current_signals = extract_signals(page_text)
-    if not current_signals:
-        print("⚠️ No signals found on the page")
-        return
-    
-    print(f"📊 Found {len(current_signals)} signals")
-    
-    # Load previous signals
-    previous_signals = load_previous_signals()
-    previous_ids = set(previous_signals.keys())
-    
-    # Find new signals
-    new_signals = [
-        sig for sig in current_signals
-        if sig["id"] not in previous_ids
-    ]
-    
-    print(f"✨ Found {len(new_signals)} new signals")
-    
-    # Process new signals
-    for signal in new_signals:
-        print(f"  💌 Processing signal {signal['id'][:8]} for {signal['pair']}")
-        message = format_telegram_message(signal)
-        
-        if send_telegram_message(message):
-            print("    📤 Signal sent to Telegram")
-            # Update previous signals only after successful send
-            previous_signals[signal["id"]] = signal
-        else:
-            print("    ❌ Failed to send signal")
-    
-    # Save updated signal history
-    save_signals(list(previous_signals.values()))
-    print(f"💾 Saved {len(previous_signals)} signals to history file")
-    
-    # Performance metrics
-    duration = time.time() - start_time
-    print(f"⏱ Execution time: {duration:.2f} seconds")
+    print(f"🕒 Current UTC time: {datetime.utcnow().isoformat()}")
+
+    try:
+        # Scrape website
+        print("🌐 Scraping website...")
+        page_text = scrape_signals()
+
+        # Extract signals
+        print("🔍 Parsing signals...")
+        current_signals = extract_signals(page_text)
+
+        if not current_signals:
+            print("⚠️ No signals found on the page")
+            return
+
+        print(f"📊 Found {len(current_signals)} signals")
+
+        # Load previous signals
+        previous_signals = load_previous_signals()
+        previous_ids = set(previous_signals.keys())
+
+        # Find new signals
+        new_signals = [
+            sig for sig in current_signals
+            if sig["id"] not in previous_ids
+        ]
+
+        print(f"✨ Found {len(new_signals)} new signals")
+
+        # Process new signals
+        for signal in new_signals:
+            print(f"  💌 Processing signal {signal['id'][:8]} for {signal['pair']}")
+            message = format_telegram_message(signal)
+
+            if send_telegram_message(message):
+                print("    📤 Signal sent to Telegram")
+                # Update previous signals only after successful send
+                previous_signals[signal["id"]] = signal
+            else:
+                print("    ❌ Failed to send signal")
+
+        # Save updated signal history
+        save_signals(list(previous_signals.values()))
+        print(f"💾 Saved {len(previous_signals)} signals to history file")
+
+    except Exception as e:
+        print(f"🔥 Critical error: {str(e)}")
+        # Send error notification to Telegram
+        error_msg = f"🚨 Forex Signal Scraper Failed 🚨\nError: {str(e)}"
+        send_telegram_message(error_msg)
+        raise  # Re-raise for GitHub Actions to catch
 
 if __name__ == "__main__":
     main()
