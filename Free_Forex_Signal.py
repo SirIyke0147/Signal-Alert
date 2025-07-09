@@ -345,6 +345,18 @@ def send_telegram_message(message):
             print(f"⚠️ Attempt {attempt+1} failed, retrying in 5 seconds...")
             time.sleep(5)
 
+def is_recent_signal(signal):
+    """Check if signal was posted in the last few minutes"""
+    # Check if posted time contains "minutes ago" (case-insensitive)
+    if "minutes ago" in signal["posted"].lower():
+        # Extract the number of minutes
+        match = re.search(r'(\d+)\s+minutes?\s+ago', signal["posted"], re.IGNORECASE)
+        if match:
+            minutes = int(match.group(1))
+            # Consider signals from the last 59 minutes as recent
+            return minutes <= 59
+    return False
+
 def main():
     print("\n" + "="*50)
     print("🚀 STARTING FOREX SIGNAL SCRAPER")
@@ -352,6 +364,7 @@ def main():
     print(f"🕒 Current UTC time: {datetime.utcnow().isoformat()}")
     print(f"🔧 Debug files will be saved to: {os.path.abspath(DEBUG_DIR)}")
     print(f"📄 Signal history file: {os.path.abspath(SIGNALS_FILE)}")
+    print("🔍 Only signals posted 'minutes ago' will be processed")
 
     try:
         # Load previous signals before scraping
@@ -381,9 +394,13 @@ def main():
 
         print(f"📊 Found {len(current_signals)} signals in page text")
 
+        # Filter signals to only keep recent ones (minutes ago)
+        recent_signals = [sig for sig in current_signals if is_recent_signal(sig)]
+        print(f"⏱ Found {len(recent_signals)} recent signals (posted minutes ago)")
+
         # Find new signals that haven't been sent yet
         new_signals = []
-        for signal in current_signals:
+        for signal in recent_signals:
             sig_id = signal["id"]
             
             # Check if signal exists in history
@@ -401,9 +418,9 @@ def main():
                 # New signal found
                 signal["sent"] = False
                 new_signals.append(signal)
-                print(f"  ✨ Found new signal {sig_id[:8]}")
+                print(f"  ✨ Found new recent signal {sig_id[:8]}")
 
-        print(f"✨ Found {len(new_signals)} unsent signals")
+        print(f"✨ Found {len(new_signals)} unsent recent signals")
 
         # Process new signals
         if new_signals:
@@ -429,7 +446,7 @@ def main():
                 else:
                     print("    ❌ Failed to send signal, keeping as unsent")
         else:
-            print("ℹ️ No new signals to send")
+            print("ℹ️ No new recent signals to send")
 
         # Save updated signal history
         print("\n" + "-"*50)
