@@ -2,8 +2,8 @@ name: Forex Signals Scraper
 
 on:
   schedule:
-    # Run every 2 hours from Monday to Friday (UTC time)
-    - cron: '0 */2 * * 1-5'
+ # Run every 1 hour from Monday to Friday (UTC time)
+    - cron: '0 * * * 1-5'
   workflow_dispatch:  # Allow manual triggers
 
 jobs:
