@@ -2,6 +2,7 @@ name: Forex Signal Hourly
 
 on:
   schedule:
+    # Every hour between Mon 3:00 and Fri 11:00 UTC
     - cron: '0 3-23 * * 1'
     - cron: '0 0-23 * * 2-4'
     - cron: '0 0-11 * * 5'
@@ -35,6 +36,7 @@ jobs:
           make
           sudo make install
           cd ..
+          sudo ldconfig
 
       - name: Install Python dependencies
         run: |
