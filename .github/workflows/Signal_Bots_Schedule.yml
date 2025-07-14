@@ -2,16 +2,16 @@ name: Forex Signal Hourly
 
 on:
   schedule:
-    # Every hour between Mon 3:00 and Fri 11:00 UTC
-    - cron: '0 3-23 * * 1'    # Monday: 3am - 11pm
-    - cron: '0 0-23 * * 2-4'  # Tuesday, Wednesday, Thursday: every hour
-    - cron: '0 0-11 * * 5'    # Friday: 0am - 11am
+    - cron: '0 3-23 * * 1'
+    - cron: '0 0-23 * * 2-4'
+    - cron: '0 0-11 * * 5'
 
 jobs:
   run-forex-signal:
     runs-on: ubuntu-latest
 
     env:
+      TZ: Europe/London
       TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -24,9 +24,25 @@ jobs:
         with:
           python-version: 3.11
 
-      - name: Install dependencies
+      - name: Install TA-Lib C library
         run: |
-          pip install pandas requests pytz ta-lib
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzvf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib
+          ./configure --prefix=/usr
+          make
+          sudo make install
+          cd ..
+
+      - name: Install Python dependencies
+        run: |
+          pip install pandas requests pytz
+          pip install ta-lib
+
+      - name: Verify TA-Lib installation
+        run: python -c "import talib; print(f'TA-Lib {talib.__version__} installed successfully')"
 
       - name: Run Forex Signal Script
         run: python Forex_Signal_Bot.py
