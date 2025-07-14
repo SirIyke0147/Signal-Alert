@@ -2,41 +2,45 @@ name: Forex Signal Hourly
 
 on:
   schedule:
-    - cron: '0 3-23 * * 1'    # Monday: 3am - 11pm
-    - cron: '0 0-23 * * 2-4'  # Tuesday to Thursday
-    - cron: '0 0-11 * * 5'    # Friday: 0am - 11am
+    - cron: '0 3-23 * * 1'    # Monday: 03:00–23:00 UTC
+    - cron: '0 * * * 2-4'     # Tuesday–Thursday: every hour
+    - cron: '0 0-11 * * 5'    # Friday: 00:00–11:00 UTC
+  workflow_dispatch:
 
 jobs:
   run-forex-signal:
     runs-on: ubuntu-latest
-
     env:
-      TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      OANDA_TOKEN:          ${{ secrets.OANDA_TOKEN }}
+      OANDA_ACCOUNT_ID:     ${{ secrets.OANDA_ACCOUNT_ID }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: "3.11"
 
-      - name: Install TA-Lib dependencies
+      - name: Install TA-Lib system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential wget
           wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
-          tar -xvzf ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
           cd ta-lib
           ./configure --prefix=/usr
           make
           sudo make install
 
       - name: Install Python dependencies
-        requests pytz
-          pip install ta-lib
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run Forex Signal Script
-        run: python
+      - name: Run Forex Signal Scanner
+        run: |
+          python scanner.py
