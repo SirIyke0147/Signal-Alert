@@ -2,10 +2,10 @@ name: Forex Signal Bot
 
 on:
   schedule:
-    # Mon–Thu: every 30 minutes all day
+    # Mon–Thu: every 30 minutes all day (24 hours)
     - cron: '*/30 * * * 1-4'
-    # Friday: every 30 minutes from 7 AM to 1 PM
-    - cron: '*/30 7-13 * * 5'
+    # Friday: every 30 minutes from 7 AM to 1 PM (UK time)
+    - cron: '*/30 6-12 * * 5'  # UTC time (6-12 UTC = 7 AM-1 PM UK time)
 
 jobs:
   run-scanner:
