@@ -3,10 +3,10 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import requests
 import pandas as pd
+import pandas_ta as ta
 import time
 from datetime import datetime
 import pytz
-import talib as ta
 
 # ===== Configuration =====
 TWELVEDATA_API_KEY = os.getenv('TWELVEDATA_API_KEY')
@@ -39,21 +39,18 @@ def get_pip_value(pair):
 
 def get_tp_sl(entry, direction, pair):
     """
-    Calculate strict TP1, TP2, SL in pips:
-    TP1: 28 pips
-    TP2: 35 pips
-    SL: 25 pips
+    Calculate TP and SL in pips:
+    TP: 28 pips
+    SL: 20 pips
     """
     pip = get_pip_value(pair)
     if direction == 'BUY':
-        tp1 = entry + (28 * pip)
-        tp2 = entry + (35 * pip)
-        sl = entry - (25 * pip)
+        tp = entry + (28 * pip)
+        sl = entry - (20 * pip)
     else:
-        tp1 = entry - (28 * pip)
-        tp2 = entry - (35 * pip)
-        sl = entry + (25 * pip)
-    return tp1, tp2, sl
+        tp = entry - (28 * pip)
+        sl = entry + (20 * pip)
+    return tp, sl
 
 def fetch_ohlc_data(pair, timeframe):
     url = f"https://api.twelvedata.com/time_series?symbol={pair}&interval={timeframe}&outputsize={OUTPUT_SIZE}&apikey={TWELVEDATA_API_KEY}"
@@ -83,14 +80,15 @@ def calculate_indicators(df):
     if df is None or len(df) < 50:
         return None
     try:
-        df['ema50'] = ta.EMA(df['close'], timeperiod=EMA_FAST)
-        df['ema200'] = ta.EMA(df['close'], timeperiod=EMA_SLOW)
-        df['bb_upper'], df['bb_middle'], df['bb_lower'] = ta.BBANDS(
-            df['close'], timeperiod=BB_PERIOD, nbdevup=BB_STDDEV, nbdevdn=BB_STDDEV)
-        df['rsi'] = ta.RSI(df['close'], timeperiod=RSI_PERIOD)
-        df['adx'] = ta.ADX(df['high'], df['low'], df['close'], timeperiod=ADX_PERIOD)
-        df['atr'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=ATR_PERIOD)
-        df = df.fillna(method='ffill').fillna(method='bfill')
+        # Calculate all indicators using pandas_ta
+        df.ta.ema(length=EMA_FAST, append=True, col_names={'ema50'})
+        df.ta.ema(length=EMA_SLOW, append=True, col_names={'ema200'})
+        df.ta.bbands(length=BB_PERIOD, std=BB_STDDEV, append=True, 
+                     col_names={'bb_lower', 'bb_middle', 'bb_upper'})
+        df.ta.rsi(length=RSI_PERIOD, append=True, col_names={'rsi'})
+        df.ta.adx(length=ADX_PERIOD, append=True, col_names={'adx'})
+        df.ta.atr(length=ATR_PERIOD, append=True, col_names={'atr'})
+        
         return df
     except Exception as e:
         print(f"Error calculating indicators: {str(e)}")
@@ -100,6 +98,7 @@ def calculate_confidence(signal_type, primary_last, conf_last=None):
     confidence = 0
     adx_score = min(30, max(0, (primary_last['adx'] - 20) * 1.5))
     confidence += adx_score
+    
     if signal_type in ['TREND FOLLOWING', 'BREAKOUT']:
         if signal_type.startswith('BUY'):
             rsi_score = min(25, (40 - max(primary_last['rsi'], 30)) * 2.5)
@@ -111,6 +110,7 @@ def calculate_confidence(signal_type, primary_last, conf_last=None):
         else:
             rsi_score = min(25, (primary_last['rsi'] - 65) * 2.5)
     confidence += rsi_score
+    
     if primary_last['close'] > primary_last['ema50'] and primary_last['ema50'] > primary_last['ema200']:
         ema_score = 20
     elif primary_last['close'] < primary_last['ema50'] and primary_last['ema50'] < primary_last['ema200']:
@@ -118,11 +118,13 @@ def calculate_confidence(signal_type, primary_last, conf_last=None):
     else:
         ema_score = 10
     confidence += ema_score
+    
     volatility_score = min(15, primary_last['atr'] * 100)
     if signal_type in ['TREND FOLLOWING', 'BREAKOUT']:
         confidence += volatility_score
     else:
         confidence += (15 - volatility_score)
+        
     if conf_last:
         if signal_type in ['TREND FOLLOWING', 'BREAKOUT']:
             if (signal_type.startswith('BUY') and 
@@ -163,44 +165,44 @@ def detect_trend_following_signal(primary_df, confirmation_df, pair):
         signal = None
         if bullish_trend:
             if last['close'] > last['ema50'] and prev['close'] < prev['ema50']:
-                tp1, tp2, sl = get_tp_sl(last['close'], 'BUY', pair)
+                tp, sl = get_tp_sl(last['close'], 'BUY', pair)
                 signal = {
                     'type': 'TREND FOLLOWING',
                     'direction': 'BUY',
                     'entry': last['close'],
                     'stop_loss': sl,
-                    'take_profit': [tp1, tp2],
+                    'take_profit': tp,
                     'reason': "Strong uptrend pullback to EMA50"
                 }
             elif last['close'] > last['bb_upper'] and conf_last is not None and conf_last['close'] > conf_last['bb_upper']:
-                tp1, tp2, sl = get_tp_sl(last['close'], 'BUY', pair)
+                tp, sl = get_tp_sl(last['close'], 'BUY', pair)
                 signal = {
                     'type': 'BREAKOUT',
                     'direction': 'BUY',
                     'entry': last['close'],
                     'stop_loss': sl,
-                    'take_profit': [tp1, tp2],
+                    'take_profit': tp,
                     'reason': "Upper Bollinger breakout in strong trend"
                 }
         elif bearish_trend:
             if last['close'] < last['ema50'] and prev['close'] > prev['ema50']:
-                tp1, tp2, sl = get_tp_sl(last['close'], 'SELL', pair)
+                tp, sl = get_tp_sl(last['close'], 'SELL', pair)
                 signal = {
                     'type': 'TREND FOLLOWING',
                     'direction': 'SELL',
                     'entry': last['close'],
                     'stop_loss': sl,
-                    'take_profit': [tp1, tp2],
+                    'take_profit': tp,
                     'reason': "Strong downtrend pullback to EMA50"
                 }
             elif last['close'] < last['bb_lower'] and conf_last is not None and conf_last['close'] < conf_last['bb_lower']:
-                tp1, tp2, sl = get_tp_sl(last['close'], 'SELL', pair)
+                tp, sl = get_tp_sl(last['close'], 'SELL', pair)
                 signal = {
                     'type': 'BREAKDOWN',
                     'direction': 'SELL',
                     'entry': last['close'],
                     'stop_loss': sl,
-                    'take_profit': [tp1, tp2],
+                    'take_profit': tp,
                     'reason': "Lower Bollinger breakdown in strong trend"
                 }
         if signal:
@@ -229,23 +231,23 @@ def detect_reversal_signal(primary_df, confirmation_df, pair):
 
         signal = None
         if buy_condition and conf_last is not None and conf_last['rsi'] > 30:
-            tp1, tp2, sl = get_tp_sl(last['close'], 'BUY', pair)
+            tp, sl = get_tp_sl(last['close'], 'BUY', pair)
             signal = {
                 'type': 'REVERSAL',
                 'direction': 'BUY',
                 'entry': last['close'],
                 'stop_loss': sl,
-                'take_profit': [tp1, tp2],
+                'take_profit': tp,
                 'reason': "Bollinger reversal with RSI confirmation"
             }
         elif sell_condition and conf_last is not None and conf_last['rsi'] < 70:
-            tp1, tp2, sl = get_tp_sl(last['close'], 'SELL', pair)
+            tp, sl = get_tp_sl(last['close'], 'SELL', pair)
             signal = {
                 'type': 'REVERSAL',
                 'direction': 'SELL',
                 'entry': last['close'],
                 'stop_loss': sl,
-                'take_profit': [tp1, tp2],
+                'take_profit': tp,
                 'reason': "Bollinger reversal with RSI confirmation"
             }
         if signal:
@@ -264,16 +266,15 @@ def send_telegram_alert(signal):
         direction_symbol = "LONG ⬆️" if signal['direction'] == 'BUY' else "SHORT ⬇️"
         message = (
             f"⏰ {time_str} UK\n"
-            f"*Forex signal *\n"
-            f"📈 {signal['pair']} Signal - {direction_symbol} ⚡\n"
-            f"Price Info:\n"
-            f"• Current price : {signal['entry']:.5f}\n"
-            f"• Stop Loss: {signal['stop_loss']:.5f}\n"
-            f"• Volatility Ratio: {signal.get('volatility_ratio', 0.97):.2f}\n\n"
-            f"🔰 Take Profit Targets:\n"
-            f"• TP:1 {signal['take_profit'][0]:.5f} 🎯\n"
-            f"• TP:2 {signal['take_profit'][1]:.5f} 🎯\n\n"
-            f"📊 Confidence: {signal['confidence']}%"
+            f"*Forex Signal Alert*\n"
+            f"📈 {signal['pair']} - {direction_symbol}\n"
+            f"Type: {signal['type']}\n\n"
+            f"📊 Entry: {signal['entry']:.5f}\n"
+            f"🛑 Stop Loss: {signal['stop_loss']:.5f}\n"
+            f"🎯 Take Profit: {signal['take_profit']:.5f}\n\n"
+            f"🔍 Reason: {signal['reason']}\n"
+            f"📈 Confidence: {signal['confidence']}%\n"
+            f"📉 Volatility: {signal.get('volatility_ratio', 0.0):.2f}%"
         )
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         params = {
@@ -300,84 +301,80 @@ def print_signal(signal):
     print(f"Reason: {signal['reason']}")
     print(f"Entry Price: {signal['entry']:.5f}")
     print(f"Stop Loss: {signal['stop_loss']:.5f}")
-    print("Take Profit Targets:")
-    print(f"  TP1: {signal['take_profit'][0]:.5f}")
-    print(f"  TP2: {signal['take_profit'][1]:.5f}")
+    print(f"Take Profit: {signal['take_profit']:.5f}")
     try:
         risk = abs(signal['entry'] - signal['stop_loss'])
-        reward1 = abs(signal['take_profit'][0] - signal['entry'])
-        reward2 = abs(signal['take_profit'][1] - signal['entry'])
-        print("\nRisk-Reward Ratios:")
-        print(f"  TP1: {reward1/risk:.2f}:1")
-        print(f"  TP2: {reward2/risk:.2f}:1")
+        reward = abs(signal['take_profit'] - signal['entry'])
+        print(f"\nRisk-Reward Ratio: {reward/risk:.2f}:1")
     except:
-        print("\nRisk-Reward Ratios: Calculation error")
+        print("\nRisk-Reward Ratio: Calculation error")
     print("="*70 + "\n")
 
 # ===== Main Execution =====
-print(f"Starting Enhanced Forex Scanner at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-print(f"Primary TF: {PRIMARY_TIMEFRAME} | Confirmation TF: {CONFIRMATION_TIMEFRAME}")
-print(f"Monitoring Pairs: {', '.join(FOREX_PAIRS)}")
-print("Strategy: Trend Following + Reversals with Multi-TF confirmation")
-print("="*70)
-
-all_signals = []
-
-for pair in FOREX_PAIRS:
-    try:
-        print(f"\nScanning {pair}...")
-        primary_data = fetch_ohlc_data(pair, PRIMARY_TIMEFRAME)
-        if primary_data is None or len(primary_data) == 0:
-            print(f"  No primary data for {pair}")
-            continue
-        primary_df = calculate_indicators(primary_data)
-        if primary_df is None or len(primary_df) == 0:
-            print(f"  Failed to calculate indicators for {pair} (primary)")
-            continue
-        confirmation_data = fetch_ohlc_data(pair, CONFIRMATION_TIMEFRAME)
-        confirmation_df = calculate_indicators(confirmation_data) if (confirmation_data is not None and len(confirmation_data) > 0) else None
-
-        trend_signal = detect_trend_following_signal(primary_df, confirmation_df, pair)
-        reversal_signal = detect_reversal_signal(primary_df, confirmation_df, pair)
-
-        signal_found = False
-        if trend_signal:
-            trend_signal['pair'] = pair
-            last = primary_df.iloc[-1]
-            trend_signal['volatility_ratio'] = last['atr'] / last['close']
-            all_signals.append(trend_signal)
-            print(f"  Trend signal detected for {pair} (Confidence: {trend_signal['confidence']}%)")
-            signal_found = True
-        if reversal_signal:
-            reversal_signal['pair'] = pair
-            last = primary_df.iloc[-1]
-            reversal_signal['volatility_ratio'] = last['atr'] / last['close']
-            all_signals.append(reversal_signal)
-            print(f"  Reversal signal detected for {pair} (Confidence: {reversal_signal['confidence']}%)")
-            signal_found = True
-        if not signal_found:
-            print(f"  No signal for {pair}")
-        try:
-            last = primary_df.iloc[-1]
-            trend_status = "Bullish" if last['close'] > last['ema200'] else "Bearish"
-            print(f"  Trend Status: {trend_status}")
-            print(f"  EMA50: {last['ema50']:.5f}, EMA200: {last['ema200']:.5f}")
-            print(f"  ADX: {last['adx']:.1f} ({'Strong' if last['adx'] > 25 else 'Weak'} trend)")
-        except Exception as e:
-            print(f"  Error displaying trend status: {str(e)}")
-    except Exception as e:
-        print(f"Error processing {pair}: {str(e)}")
-
-if all_signals:
-    all_signals.sort(key=lambda x: x['confidence'], reverse=True)
-    top_signals = all_signals[:3]
-    print("\n" + "="*70)
-    print(f"🔥 TOP {len(top_signals)} SIGNALS BY CONFIDENCE")
+if __name__ == "__main__":
+    print(f"Starting Enhanced Forex Scanner at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Primary TF: {PRIMARY_TIMEFRAME} | Confirmation TF: {CONFIRMATION_TIMEFRAME}")
+    print(f"Monitoring Pairs: {', '.join(FOREX_PAIRS)}")
+    print("Strategy: Trend Following + Reversals with Multi-TF confirmation")
     print("="*70)
-    for signal in top_signals:
-        print_signal(signal)
-        send_telegram_alert(signal)
-else:
-    print("\nNo signals detected in this scan")
 
-print("\nScan completed. Waiting for next scheduled run...")
+    all_signals = []
+
+    for pair in FOREX_PAIRS:
+        try:
+            print(f"\nScanning {pair}...")
+            primary_data = fetch_ohlc_data(pair, PRIMARY_TIMEFRAME)
+            if primary_data is None or len(primary_data) == 0:
+                print(f"  No primary data for {pair}")
+                continue
+            primary_df = calculate_indicators(primary_data)
+            if primary_df is None or len(primary_df) == 0:
+                print(f"  Failed to calculate indicators for {pair} (primary)")
+                continue
+            confirmation_data = fetch_ohlc_data(pair, CONFIRMATION_TIMEFRAME)
+            confirmation_df = calculate_indicators(confirmation_data) if confirmation_data is not None else None
+
+            trend_signal = detect_trend_following_signal(primary_df, confirmation_df, pair)
+            reversal_signal = detect_reversal_signal(primary_df, confirmation_df, pair)
+
+            signal_found = False
+            if trend_signal:
+                trend_signal['pair'] = pair
+                last = primary_df.iloc[-1]
+                trend_signal['volatility_ratio'] = last['atr'] / last['close'] * 100
+                all_signals.append(trend_signal)
+                print(f"  Trend signal detected for {pair} (Confidence: {trend_signal['confidence']}%)")
+                signal_found = True
+            if reversal_signal:
+                reversal_signal['pair'] = pair
+                last = primary_df.iloc[-1]
+                reversal_signal['volatility_ratio'] = last['atr'] / last['close'] * 100
+                all_signals.append(reversal_signal)
+                print(f"  Reversal signal detected for {pair} (Confidence: {reversal_signal['confidence']}%)")
+                signal_found = True
+            if not signal_found:
+                print(f"  No signal for {pair}")
+            try:
+                last = primary_df.iloc[-1]
+                trend_status = "Bullish" if last['close'] > last['ema200'] else "Bearish"
+                print(f"  Trend Status: {trend_status}")
+                print(f"  EMA50: {last['ema50']:.5f}, EMA200: {last['ema200']:.5f}")
+                print(f"  ADX: {last['adx']:.1f} ({'Strong' if last['adx'] > 25 else 'Weak'} trend)")
+            except Exception as e:
+                print(f"  Error displaying trend status: {str(e)}")
+        except Exception as e:
+            print(f"Error processing {pair}: {str(e)}")
+
+    if all_signals:
+        all_signals.sort(key=lambda x: x['confidence'], reverse=True)
+        top_signals = all_signals[:3]
+        print("\n" + "="*70)
+        print(f"🔥 TOP {len(top_signals)} SIGNALS BY CONFIDENCE")
+        print("="*70)
+        for signal in top_signals:
+            print_signal(signal)
+            send_telegram_alert(signal)
+    else:
+        print("\nNo signals detected in this scan")
+
+    print("\nScan completed. Waiting for next scheduled run...")
